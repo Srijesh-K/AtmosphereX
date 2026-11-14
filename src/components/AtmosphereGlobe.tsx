@@ -10,6 +10,7 @@ import {
   WorldCity,
   WorldCountry,
   findCountryForCoord,
+  findCountryByNameOrCode,
 } from '../data/worldGeoData';
 import { formatTemp } from './CurrentWeatherHero';
 import {
@@ -32,14 +33,14 @@ interface AtmosphereGlobeProps {
 
 // Atmospheric Regional Presets for fast camera targeting
 const REGION_PRESETS = [
-  { name: 'North America', lat: 38.0, lon: -97.0 },
-  { name: 'Europe', lat: 50.0, lon: 10.0 },
-  { name: 'East Asia', lat: 35.0, lon: 120.0 },
-  { name: 'South Asia', lat: 21.0, lon: 78.0 },
-  { name: 'South America', lat: -15.0, lon: -60.0 },
-  { name: 'Africa', lat: 5.0, lon: 20.0 },
-  { name: 'Oceania', lat: -25.0, lon: 135.0 },
-  { name: 'Polar Arctic', lat: 75.0, lon: 0.0 },
+  { name: 'North America', country: 'United States', lat: 38.0, lon: -97.0 },
+  { name: 'Europe', country: 'Germany', lat: 51.1, lon: 10.4 },
+  { name: 'East Asia', country: 'Japan', lat: 36.2, lon: 138.2 },
+  { name: 'South Asia', country: 'India', lat: 20.5, lon: 78.9 },
+  { name: 'South America', country: 'Brazil', lat: -14.2, lon: -51.9 },
+  { name: 'Africa', country: 'Egypt', lat: 26.8, lon: 30.8 },
+  { name: 'Oceania', country: 'Australia', lat: -25.2, lon: 133.7 },
+  { name: 'Antarctica', country: 'Antarctica', lat: -82.8, lon: 135.0 },
 ];
 
 export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
@@ -62,7 +63,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
   const [zoom, setZoom] = useState<number>(1.0);
   const [autoRotate, setAutoRotate] = useState<boolean>(true);
 
-  // Current probed target
+  // Current probed target and structured country/city hierarchy
   const [targetLat, setTargetLat] = useState<number | null>(
     bundle ? bundle.location.latitude : 37.7749
   );
@@ -72,6 +73,10 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
   const [targetName, setTargetName] = useState<string>(
     bundle ? bundle.location.name : 'San Francisco'
   );
+  const [targetCountry, setTargetCountry] = useState<WorldCountry | null>(() =>
+    findCountryByNameOrCode(bundle?.location?.country || 'United States')
+  );
+  const [targetCity, setTargetCity] = useState<WorldCity | null>(null);
 
   // Hover coordinate & entity tracking
   const [hoverCoord, setHoverCoord] = useState<{
@@ -105,6 +110,9 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
       setTargetLat(bundle.location.latitude);
       setTargetLon(bundle.location.longitude);
       setTargetName(bundle.location.name);
+      if (bundle.location.country) {
+        setTargetCountry(findCountryByNameOrCode(bundle.location.country));
+      }
     }
   }, [bundle?.location]);
 
@@ -343,7 +351,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
       }
       ctx.stroke();
 
-      // 4. World Countries (Fills and Borders with Horizon Segment Interpolation)
+      // 4. World Countries (Standardized Boundary Rendering & Centroid Hierarchy)
       WORLD_COUNTRIES.forEach((country) => {
         const isHovered = hoveredCountry?.id === country.id;
 
@@ -402,7 +410,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
           ctx.stroke();
         });
 
-        // 4b. Country Centroid Label (Adaptive visibility across zoom)
+        // 4b. Country Centroid Label (With standardized ISO Code and adaptive visibility)
         const countryPt = project(
           country.lat,
           country.lon,
@@ -424,7 +432,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
             ctx.fillStyle = isHovered
               ? 'rgba(34, 211, 238, 0.95)'
               : 'rgba(148, 163, 184, 0.70)';
-            ctx.fillText(country.name.toUpperCase(), countryPt.x, countryPt.y);
+            ctx.fillText(`${country.name.toUpperCase()} (${country.code})`, countryPt.x, countryPt.y);
             ctx.restore();
           }
         }
@@ -479,7 +487,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
         });
       }
 
-      // 8. World Cities Rendering (Markers, Glowing Nodes, and Collision-Avoided Labels)
+      // 8. World Cities Rendering (Markers, Glowing Nodes, and Structured City Badges)
       const renderedCityPositions: Array<{
         city: WorldCity;
         screenX: number;
@@ -611,12 +619,17 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
           ctx.fillStyle = '#FFFFFF';
           ctx.fill();
 
-          // Target coordinate label HUD callout
+          // Target coordinate label HUD callout with proper hierarchy
           const tagX = targetPt.x + 10;
           const tagY = targetPt.y - 12;
 
           ctx.font = '600 10px monospace';
-          const labelText = `${targetName || 'Probe'} (${targetLat.toFixed(2)}°, ${targetLon.toFixed(2)}°)`;
+          const labelText = targetCity
+            ? `${targetCity.name}, ${targetCity.country} (${targetLat.toFixed(2)}°, ${targetLon.toFixed(2)}°)`
+            : targetCountry
+            ? `${targetCountry.name} [${targetCountry.id}] (${targetLat.toFixed(2)}°, ${targetLon.toFixed(2)}°)`
+            : `${targetName || 'Probe'} (${targetLat.toFixed(2)}°, ${targetLon.toFixed(2)}°)`;
+
           const textWidth = ctx.measureText(labelText).width;
 
           // Callout backdrop
@@ -681,6 +694,8 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
     targetLat,
     targetLon,
     targetName,
+    targetCountry,
+    targetCity,
     hoveredCity,
     hoveredCountry,
     iotDevices,
@@ -751,20 +766,23 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
     isDraggingRef.current = false;
   };
 
-  // Select location at (px, py)
+  // Select location at (px, py) with strict hierarchical consistency
   const probeLocationAt = useCallback(
     (px: number, py: number) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
-      // Check if clicking directly on a city
+      // 1. Check if clicking directly on a city
       for (const item of visibleCitiesRef.current) {
         const dx = item.screenX - px;
         const dy = item.screenY - py;
         if (Math.sqrt(dx * dx + dy * dy) <= 16) {
+          const parentCountry = findCountryByNameOrCode(item.city.country);
           setTargetLat(item.city.lat);
           setTargetLon(item.city.lon);
           setTargetName(item.city.name);
+          setTargetCity(item.city);
+          setTargetCountry(parentCountry || null);
 
           onSelectCoordinates({
             name: item.city.name,
@@ -776,7 +794,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
         }
       }
 
-      // Unproject to coordinates
+      // 2. Unproject to coordinates and detect country
       const cx = canvas.clientWidth / 2;
       const cy = canvas.clientHeight / 2;
       const radius = Math.min(canvas.clientWidth, canvas.clientHeight) * 0.42 * zoom;
@@ -784,20 +802,36 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
       const coords = unproject(px, py, cx, cy, radius, centerLat, centerLon);
       if (coords) {
         const matchedCountry = findCountryForCoord(coords.lat, coords.lon);
-        const generatedName = matchedCountry
-          ? `${matchedCountry.name} (${coords.lat > 0 ? coords.lat + '°N' : Math.abs(coords.lat) + '°S'}, ${coords.lon > 0 ? coords.lon + '°E' : Math.abs(coords.lon) + '°W'})`
-          : `Atmospheric Vector (${coords.lat > 0 ? coords.lat + '°N' : Math.abs(coords.lat) + '°S'}, ${coords.lon > 0 ? coords.lon + '°E' : Math.abs(coords.lon) + '°W'})`;
 
-        setTargetLat(coords.lat);
-        setTargetLon(coords.lon);
-        setTargetName(generatedName);
+        if (matchedCountry) {
+          // Proper country hierarchy: Name is official country, country is country name, admin1 is capital
+          setTargetLat(coords.lat);
+          setTargetLon(coords.lon);
+          setTargetName(matchedCountry.name);
+          setTargetCountry(matchedCountry);
+          setTargetCity(null);
 
-        onSelectCoordinates({
-          name: generatedName,
-          country: matchedCountry?.name,
-          latitude: coords.lat,
-          longitude: coords.lon,
-        });
+          onSelectCoordinates({
+            name: matchedCountry.name,
+            country: matchedCountry.name,
+            admin1: matchedCountry.capital,
+            latitude: coords.lat,
+            longitude: coords.lon,
+          });
+        } else {
+          const oceanicName = 'Atmospheric Vector';
+          setTargetLat(coords.lat);
+          setTargetLon(coords.lon);
+          setTargetName(oceanicName);
+          setTargetCountry(null);
+          setTargetCity(null);
+
+          onSelectCoordinates({
+            name: oceanicName,
+            latitude: coords.lat,
+            longitude: coords.lon,
+          });
+        }
       }
     },
     [centerLat, centerLon, zoom, unproject, onSelectCoordinates]
@@ -905,8 +939,13 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
     setTargetLon(preset.lon);
     setTargetName(preset.name);
 
+    const countryObj = findCountryByNameOrCode(preset.country);
+    setTargetCountry(countryObj || null);
+    setTargetCity(null);
+
     onSelectCoordinates({
       name: preset.name,
+      country: preset.country,
       latitude: preset.lat,
       longitude: preset.lon,
     });
@@ -949,22 +988,58 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
         }`}
       />
 
-      {/* Top Left: Target Lock HUD Readout */}
+      {/* Top Left: Target Lock HUD Readout (Hierarchical Country & City Intelligence) */}
       <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10 pointer-events-none">
-        <div className="p-2.5 sm:p-3 rounded-lg border border-cyan-500/30 bg-[#070B14]/85 backdrop-blur-md shadow-lg shadow-cyan-950/40 max-w-[260px] sm:max-w-xs space-y-1">
-          <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-mono font-semibold text-cyan-400">
-            <Radio className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
-            <span>ORBITAL TELEMETRY PROBE</span>
+        <div className="p-2.5 sm:p-3 rounded-lg border border-cyan-500/30 bg-[#070B14]/85 backdrop-blur-md shadow-lg shadow-cyan-950/40 max-w-[280px] sm:max-w-xs space-y-1">
+          <div className="flex items-center justify-between gap-1 text-[10px] sm:text-[11px] font-mono font-semibold text-cyan-400">
+            <div className="flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
+              <span>ORBITAL TELEMETRY PROBE</span>
+            </div>
+            {targetCountry && (
+              <span className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-[9px]">
+                {targetCountry.id}
+              </span>
+            )}
           </div>
+
+          {/* Proper Geographical Title */}
           <div className="text-xs sm:text-sm font-semibold text-slate-100 truncate flex items-center gap-1.5">
-            <Globe2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <span className="truncate">{targetName || 'Select an area on the globe'}</span>
+            {targetCity ? (
+              <MapPin className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            ) : (
+              <Globe2 className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+            )}
+            <span className="truncate">
+              {targetCity
+                ? `${targetCity.name}, ${targetCity.country}`
+                : targetCountry
+                ? `${targetCountry.name}`
+                : targetName || 'Select an area on the globe'}
+            </span>
           </div>
+
+          {/* Country Hierarchy Subtitle: Continent · Subregion · Capital */}
+          {targetCountry && (
+            <div className="text-[10px] font-mono text-slate-400 truncate flex items-center gap-1">
+              <span>{targetCountry.continent}</span>
+              <span>·</span>
+              <span>{targetCountry.region}</span>
+              {targetCountry.capital && (
+                <>
+                  <span>·</span>
+                  <span className="text-slate-300">Cap: {targetCountry.capital}</span>
+                </>
+              )}
+            </div>
+          )}
+
           {targetLat != null && targetLon != null && (
             <div className="text-[10px] sm:text-[11px] font-mono text-slate-400 tabular-nums">
               LAT {targetLat.toFixed(4)}° · LON {targetLon.toFixed(4)}°
             </div>
           )}
+
           {bundle && (
             <div className="pt-1 mt-1 border-t border-slate-800 text-[10px] sm:text-[11px] font-mono flex items-center justify-between text-slate-300">
               <span>
@@ -1031,7 +1106,7 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
       <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-4 sm:right-4 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 pointer-events-none">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 pointer-events-auto scrollbar-none">
           <span className="text-[10px] font-mono font-medium text-slate-400 uppercase tracking-wider hidden md:inline mr-1 shrink-0">
-            Presets:
+            Regions:
           </span>
           {REGION_PRESETS.slice(0, 6).map((preset) => (
             <button
@@ -1045,18 +1120,23 @@ export const AtmosphereGlobe: React.FC<AtmosphereGlobeProps> = ({
           ))}
         </div>
 
-        {/* Live Hover Coordinate / City Readout */}
+        {/* Live Hover Coordinate / City Readout with Organized Country Hierarchy */}
         <div className="pointer-events-none text-[10px] sm:text-[11px] font-mono text-slate-400 bg-[#070B14]/85 border border-slate-800/80 px-2.5 py-1 rounded-md backdrop-blur-md tabular-nums flex items-center gap-1.5 shrink-0 self-start sm:self-auto max-w-full truncate">
           {hoveredCity ? (
-            <span className="text-cyan-300 flex items-center gap-1 font-semibold truncate">
+            <span className="text-cyan-300 flex items-center gap-1.5 font-semibold truncate">
               <MapPin className="w-3 h-3 text-cyan-400 shrink-0" />
               <span className="truncate">{hoveredCity.name}, {hoveredCity.country}</span>
+              <span className="text-cyan-400/80 font-mono text-[10px]">({hoveredCity.countryCode})</span>
+              <span className="text-slate-400 font-normal hidden md:inline">· {hoveredCity.continent}</span>
               <span className="text-slate-400 font-normal hidden sm:inline">(Tap/click to monitor)</span>
             </span>
           ) : hoveredCountry ? (
-            <span className="text-teal-300 flex items-center gap-1 truncate">
+            <span className="text-teal-300 flex items-center gap-1.5 truncate">
               <Globe2 className="w-3 h-3 text-teal-400 shrink-0" />
-              <span className="truncate">{hoveredCountry.name}</span>
+              <span className="font-semibold text-white truncate">{hoveredCountry.name}</span>
+              <span className="text-teal-400 font-mono text-[10px]">({hoveredCountry.id})</span>
+              <span className="text-slate-400 font-normal hidden md:inline">· {hoveredCountry.continent} ({hoveredCountry.region})</span>
+              <span className="text-slate-300 font-normal hidden lg:inline">· Cap: {hoveredCountry.capital}</span>
               {hoverCoord && (
                 <span className="text-slate-400 font-normal hidden sm:inline">
                   · {hoverCoord.lat > 0 ? hoverCoord.lat.toFixed(1) + '°N' : Math.abs(hoverCoord.lat).toFixed(1) + '°S'}, {hoverCoord.lon > 0 ? hoverCoord.lon.toFixed(1) + '°E' : Math.abs(hoverCoord.lon).toFixed(1) + '°W'}
